@@ -8694,7 +8694,12 @@ shouldPrintColumn(DumpOptions *dopt, TableInfo *tbinfo, int colno)
 {
 	if (dopt->binary_upgrade)
 		return true;
-	return (tbinfo->attislocal[colno] && !tbinfo->attisdropped[colno]);
+	/*
+	 * if tbinfo->parrelid is not zero, it means that tbinfo is an external/foreign table, and the
+	 * table has been exchanged into the partition table. so we should always dump the column
+	 * defined by tbinfo.
+	 */
+	return ((tbinfo->attislocal[colno] || tbinfo->parrelid != 0) && !tbinfo->attisdropped[colno]);
 }
 
 
@@ -15733,6 +15738,48 @@ dumpTable(Archive *fout, TableInfo *tbinfo)
 		destroyPQExpBuffer(query);
 	}
 
+	if ((tbinfo->dobj.dump & DUMP_COMPONENT_DEFINITION) && tbinfo->parrelid != 0)
+	{
+		PQExpBuffer	expart = createPQExpBuffer();
+		TableInfo	*parent = findTableByOid(tbinfo->parrelid);
+		PQExpBuffer	tag;
+		PQExpBuffer	query = createPQExpBuffer();
+		PGresult	*res;
+		char		*parentname;
+		char		*childname;
+		char		*parpath;
+		if (!parent)
+		{
+			write_msg(NULL, "parent table (OID %u) of partition \"%s\" (OID %u) not found\n",
+					  tbinfo->parrelid, tbinfo->dobj.name, tbinfo->dobj.catId.oid);
+			exit_nicely(1);
+		}
+		parentname = pg_strdup(fmtQualifiedDumpable(parent));
+		childname = pg_strdup(fmtQualifiedDumpable(tbinfo));
+		appendPQExpBuffer(query,
+						  "SELECT pg_get_partition_path('%u'::pg_catalog.oid, "
+						  "' ALTER PARTITION ', ' EXCHANGE PARTITION ');", tbinfo->dobj.catId.oid);
+		res = ExecuteSqlQueryForSingleRow(fout, query->data);
+		parpath = pg_strdup(PQgetvalue(res, 0, 0));
+		appendPQExpBuffer(expart, "ALTER TABLE %s %s WITH TABLE %s WITHOUT VALIDATION;\n",
+						  parentname, parpath, childname);
+		appendPQExpBuffer(expart, "DROP TABLE %s;\n", childname);
+
+		tag = createPQExpBuffer();
+		appendPQExpBuffer(tag, "EXCHANGE PARTITION %s", childname);
+		ArchiveEntry(fout, nilCatalogId, createDumpId(), tag->data, tbinfo->dobj.namespace->dobj.name,
+					 NULL, tbinfo->rolname, false, "EXCHANGE PARTITION", SECTION_PRE_DATA, expart->data,
+					 "", NULL, &(tbinfo->dobj.dumpId), 1, NULL, NULL);
+
+		destroyPQExpBuffer(expart);
+		destroyPQExpBuffer(tag);
+		free(parpath);
+		PQclear(res);
+		free(childname);
+		free(parentname);
+		destroyPQExpBuffer(query);
+	}
+
 	free(namecopy);
 
 	return;
@@ -15772,7 +15819,7 @@ dumpExternal(Archive *fout, TableInfo *tbinfo, PQExpBuffer q, PQExpBuffer delq)
 		 * DROP must be fully qualified in case same name appears in
 		 * pg_catalog
 		 */
-		appendPQExpBuffer(delq, "DROP EXTERNAL TABLE %s.",
+		appendPQExpBuffer(delq, "DROP EXTERNAL TABLE %s;\n",
 						  qualrelname);
 
 		/* Now get required information from pg_exttable */
@@ -16172,7 +16219,6 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 	char	   *ftoptions = NULL;
 	int			j,
 				k;
-	bool		hasExternalPartitions = false;
 
 	qrelname = pg_strdup(fmtId(tbinfo->dobj.name));
 	qualrelname = pg_strdup(fmtQualifiedDumpable(tbinfo));
@@ -16620,33 +16666,6 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 				PQclear(res);
 			}
 
-			if (isPartitioned)
-			{
-				/*
-				 * Find out if there are any external partitions.
-				 *
-				 * In GPDB 6.X and below, external tables have
-				 * relkind=RELKIND_RELATION and relstorage=RELSTORAGE_EXTERNAL.
-				 * In later versions, they are just foreign tables. This query
-				 * works on all server versions.
-				 */
-				resetPQExpBuffer(query);
-				appendPQExpBuffer(query, "SELECT EXISTS (SELECT 1 "
-										 "  FROM pg_class part "
-										 "  JOIN pg_partition_rule pr ON (part.oid = pr.parchildrelid) "
-										 "  JOIN pg_partition p ON (pr.paroid = p.oid) "
-										 "WHERE p.parrelid = '%u'::pg_catalog.oid "
-										 "  AND (part.relstorage = '%c' OR part.relkind = '%c')) "
-										 "AS has_external_partitions;",
-								  tbinfo->dobj.catId.oid,
-								  RELSTORAGE_EXTERNAL,
-								  RELKIND_FOREIGN_TABLE);
-
-				res = ExecuteSqlQueryForSingleRow(fout, query->data);
-				hasExternalPartitions = (PQgetvalue(res, 0, 0)[0] == 't');
-				PQclear(res);
-			}
-
 			destroyPQExpBuffer(query);
 		}
 
@@ -16657,92 +16676,6 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 			appendPQExpBuffer(q, "\nOPTIONS (\n    %s\n)", ftoptions);
 
 		appendPQExpBufferStr(q, ";\n");
-
-		/*
-		 * Exchange external partitions. This is an expensive process, so only
-		 * run it if we've found evidence of external partitions up above.
-		 */
-		if (hasExternalPartitions)
-		{
-			int i = 0;
-			int ntups = 0;
-			char *relname = NULL;
-			int i_relname = 0;
-			int i_parname = 0;
-			int i_partitionrank = 0;
-			PQExpBuffer query = createPQExpBuffer();
-			PGresult   *res;
-
-			/*
-			 * The multiple JOINs below trigger an apparent planner bug which
-			 * may effectively hang the backend. This bug is present in both
-			 * released versions of GPDB and the current development tip at time
-			 * of writing. Disable nestloops temporarily as a workaround.
-			 *
-			 * TODO: when this bug is fixed, version-gate this code so that we
-			 * don't run it on well-behaved backends.
-			 */
-			ExecuteSqlStatement(fout, "SET enable_nestloop TO off");
-
-			appendPQExpBuffer(query, "SELECT DISTINCT cc.relname, ps.partitionrank, pp.parname "
-					"FROM pg_partition p "
-					"JOIN pg_class c on (p.parrelid = c.oid) "
-					"JOIN pg_partitions ps on (c.relname = ps.tablename) "
-					"JOIN pg_class cc on (ps.partitiontablename = cc.relname) "
-					"JOIN pg_partition_rule pp on (cc.oid = pp.parchildrelid) "
-					"WHERE p.parrelid = %u AND (cc.relstorage='%c' OR cc.relkind = '%c');",
-					tbinfo->dobj.catId.oid,
-					RELSTORAGE_EXTERNAL, RELKIND_FOREIGN_TABLE);
-
-			res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
-
-			ntups = PQntuples(res);
-			i_relname = PQfnumber(res, "relname");
-			i_parname = PQfnumber(res, "parname");
-			i_partitionrank = PQfnumber(res, "partitionrank");
-
-			/* FIXME: does this code handle external SUBPARTITIONs correctly? */
-			for (i = 0; i < ntups; i++)
-			{
-				char tmpExtTable[500] = {0};
-				relname = pg_strdup(PQgetvalue(res, i, i_relname));
-				snprintf(tmpExtTable, sizeof(tmpExtTable), "%s%s", relname, EXT_PARTITION_NAME_POSTFIX);
-				char *qualTmpExtTable = pg_strdup(fmtQualifiedId(fout->remoteVersion,
-																 tbinfo->dobj.namespace->dobj.name,
-																 tmpExtTable));
-
-				appendPQExpBuffer(q, "ALTER TABLE %s ", qualrelname);
-				/*
-				 * If it is an anonymous range partition we must exchange for
-				 * the rank rather than the parname.
-				 */
-				if (PQgetisnull(res, i, i_parname) || !strlen(PQgetvalue(res, i, i_parname)))
-				{
-					appendPQExpBuffer(q, "EXCHANGE PARTITION FOR (RANK(%s)) ",
-									  PQgetvalue(res, i, i_partitionrank));
-				}
-				else
-				{
-					appendPQExpBuffer(q, "EXCHANGE PARTITION %s ",
-									  fmtId(PQgetvalue(res, i, i_parname)));
-				}
-				appendPQExpBuffer(q, "WITH TABLE %s WITHOUT VALIDATION; ", qualTmpExtTable);
-
-				appendPQExpBuffer(q, "\n");
-
-				appendPQExpBuffer(q, "DROP TABLE %s; ", qualTmpExtTable);
-
-				appendPQExpBuffer(q, "\n");
-				free(relname);
-				free(qualTmpExtTable);
-			}
-
-			PQclear(res);
-			destroyPQExpBuffer(query);
-
-			/* TODO: version-gate this when the planner bug is fixed; see above. */
-			ExecuteSqlStatement(fout, "SET enable_nestloop TO on");
-		}
 
 		/*
 		 * To create binary-compatible heap files, we have to ensure the same
@@ -17105,6 +17038,8 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 
 	if (tbinfo->dobj.dump & DUMP_COMPONENT_DEFINITION)
 	{
+		/* no drop stmt for exchanged external table */
+		char *delstmt = tbinfo->parrelid != 0 ? "" : delq->data;
 		/*
 		 * GPDB_94_MERGE_FIXME: Why gpdb doesn't pass conditionally
 		 * SECTION_PRE_DATA or SECTION_POST_DATA based on tbinfo->postponed_def
@@ -17119,7 +17054,7 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 					  strcmp(reltypename, "EXTERNAL TABLE") == 0
 						 ) ? tbinfo->hasoids : false,
 					 reltypename, SECTION_PRE_DATA,
-					 q->data, delq->data, NULL,
+					 q->data, delstmt, NULL,
 					 NULL, 0,
 					 NULL, NULL);
 	}
@@ -18591,8 +18526,8 @@ setExtPartDependency(TableInfo *tblinfo, int numTables)
 			exit_nicely(1);
 		}
 
-		addObjectDependency(&parent->dobj, tbinfo->dobj.dumpId);
-		removeObjectDependency(&tbinfo->dobj, parent->dobj.dumpId);
+		addObjectDependency(&tbinfo->dobj, parent->dobj.dumpId);
+		removeObjectDependency(&parent->dobj, tbinfo->dobj.dumpId);
 	}
 }
 

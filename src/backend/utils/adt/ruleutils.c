@@ -11844,6 +11844,22 @@ pg_get_partition_def(PG_FUNCTION_ARGS)
 }
 
 Datum
+pg_get_partition_path(PG_FUNCTION_ARGS)
+{
+	Oid			relid = PG_GETARG_OID(0);
+	char 	   *separator = text_to_cstring(PG_GETARG_TEXT_PP(1));
+	char	   *lastsep = text_to_cstring(PG_GETARG_TEXT_PP(2));
+	char	   *retpath;
+
+	retpath = rel_get_part_path_pretty(relid, separator, lastsep);
+
+	if (!retpath)
+		PG_RETURN_NULL();
+
+	PG_RETURN_TEXT_P(string_to_text(retpath));
+}
+
+Datum
 pg_get_partition_def_ext(PG_FUNCTION_ARGS)
 {
 	Oid			relid = PG_GETARG_OID(0);

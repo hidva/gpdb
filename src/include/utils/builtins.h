@@ -787,6 +787,7 @@ extern Datum pg_get_partition_def_ext2(PG_FUNCTION_ARGS);
 extern Datum pg_get_partition_rule_def(PG_FUNCTION_ARGS);
 extern Datum pg_get_partition_rule_def_ext(PG_FUNCTION_ARGS);
 extern Datum pg_get_partition_template_def(PG_FUNCTION_ARGS);
+extern Datum pg_get_partition_path(PG_FUNCTION_ARGS);
 
 extern Datum pg_get_table_distributedby(PG_FUNCTION_ARGS);
 
