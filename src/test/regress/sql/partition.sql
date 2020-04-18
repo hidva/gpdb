@@ -1592,6 +1592,22 @@ alter table rank_exc alter partition girls exchange partition year4 with table r
 select * from rank_exc_1_prt_girls_2_prt_year4;
 select * from r;
 
+-- coninhcount test
+CREATE TABLE parttable(col1 int, col2 int, col3 int, col4 int)
+PARTITION BY RANGE (col2) 
+    SUBPARTITION BY RANGE (col3) 
+    SUBPARTITION TEMPLATE (START (1) END (2) EVERY (1)) 
+        SUBPARTITION BY LIST (col4)     
+        SUBPARTITION TEMPLATE (SUBPARTITION val1 VALUES (1), SUBPARTITION val2 VALUES (2)) 
+( START (2008) END (2009) EVERY (1));
+
+CREATE TABLE alonetable(col1 int, col2 int, col3 int, col4 int);
+SELECT conislocal, coninhcount FROM pg_constraint WHERE conrelid = 'alonetable'::regclass;
+ALTER TABLE parttable ALTER PARTITION FOR (2008) ALTER PARTITION FOR (1) EXCHANGE PARTITION val1 WITH TABLE alonetable;
+SELECT conislocal, coninhcount FROM pg_constraint WHERE conrelid = 'alonetable'::regclass;
+ALTER TABLE parttable ALTER PARTITION FOR (2008) ALTER PARTITION FOR (1) EXCHANGE PARTITION val1 WITH TABLE alonetable;
+SELECT conislocal, coninhcount FROM pg_constraint WHERE conrelid = 'alonetable'::regclass;
+
 -- Split test
 alter table rank_exc alter partition girls split default partition start('2008')
   end('2020') into (partition years, partition gfuture);

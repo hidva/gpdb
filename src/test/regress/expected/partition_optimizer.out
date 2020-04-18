@@ -3145,6 +3145,48 @@ select * from r;
   3 |    3 | 2004 | F      | 100000
 (1 row)
 
+-- coninhcount test
+CREATE TABLE parttable(col1 int, col2 int, col3 int, col4 int)
+PARTITION BY RANGE (col2) 
+    SUBPARTITION BY RANGE (col3) 
+    SUBPARTITION TEMPLATE (START (1) END (2) EVERY (1)) 
+        SUBPARTITION BY LIST (col4)     
+        SUBPARTITION TEMPLATE (SUBPARTITION val1 VALUES (1), SUBPARTITION val2 VALUES (2)) 
+( START (2008) END (2009) EVERY (1));
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column named 'col1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+NOTICE:  CREATE TABLE will create partition "parttable_1_prt_1" for table "parttable"
+NOTICE:  CREATE TABLE will create partition "parttable_1_prt_1_2_prt_1" for table "parttable_1_prt_1"
+NOTICE:  CREATE TABLE will create partition "parttable_1_prt_1_2_prt_1_3_prt_val1" for table "parttable_1_prt_1_2_prt_1"
+NOTICE:  CREATE TABLE will create partition "parttable_1_prt_1_2_prt_1_3_prt_val2" for table "parttable_1_prt_1_2_prt_1"
+CREATE TABLE alonetable(col1 int, col2 int, col3 int, col4 int);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column named 'col1' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+SELECT conislocal, coninhcount FROM pg_constraint WHERE conrelid = 'alonetable'::regclass;
+ conislocal | coninhcount 
+------------+-------------
+(0 rows)
+
+ALTER TABLE parttable ALTER PARTITION FOR (2008) ALTER PARTITION FOR (1) EXCHANGE PARTITION val1 WITH TABLE alonetable;
+NOTICE:  exchanged partition "val1" of partition for value (1) of partition for value (2008) of relation "parttable" with relation "alonetable"
+SELECT conislocal, coninhcount FROM pg_constraint WHERE conrelid = 'alonetable'::regclass;
+ conislocal | coninhcount 
+------------+-------------
+ t          |           0
+ t          |           0
+ t          |           0
+(3 rows)
+
+ALTER TABLE parttable ALTER PARTITION FOR (2008) ALTER PARTITION FOR (1) EXCHANGE PARTITION val1 WITH TABLE alonetable;
+NOTICE:  exchanged partition "val1" of partition for value (1) of partition for value (2008) of relation "parttable" with relation "alonetable"
+SELECT conislocal, coninhcount FROM pg_constraint WHERE conrelid = 'alonetable'::regclass;
+ conislocal | coninhcount 
+------------+-------------
+ t          |           0
+ t          |           0
+ t          |           0
+(3 rows)
+
 -- Split test
 alter table rank_exc alter partition girls split default partition start('2008')
   end('2020') into (partition years, partition gfuture);

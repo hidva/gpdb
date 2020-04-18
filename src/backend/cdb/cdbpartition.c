@@ -7941,8 +7941,9 @@ constraint_apply_mapped(HeapTuple tuple, TupleConversionMap *map, Relation cand,
 									  conexpr,
 									  conbin,
 									  consrc,
-									  con->conislocal,
-									  con->coninhcount,
+									  /* exchange_part_inheritance() will update coninhcount if needed. */
+									  true, /* con->conislocal */
+									  0, /* con->coninhcount */
 									  false, /* conNoInherit */
 									  true /* is_internal */);
 				break;
@@ -7996,8 +7997,8 @@ constraint_apply_mapped(HeapTuple tuple, TupleConversionMap *map, Relation cand,
 									  NULL,		/* no check constraint */
 									  NULL,
 									  NULL,
-									  con->conislocal,
-									  con->coninhcount,
+									  true, /* con->conislocal */
+									  0, /* con->coninhcount */
 									  true, /* conNoInherit */
 									  true /* is_internal */);
 
