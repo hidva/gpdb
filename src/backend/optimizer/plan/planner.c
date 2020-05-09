@@ -202,6 +202,8 @@ static CdbPathLocus choose_one_window_locus(PlannerInfo *root, Path *path,
 											WindowClause *wc,
 											bool *need_redistribute_p);
 
+static void ExpandPlanSlices(PlannedStmt *stmt);
+
 /*****************************************************************************
  *
  *	   Query optimizer entry point
@@ -238,6 +240,7 @@ planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	else
 		result = standard_planner(parse, cursorOptions, boundParams);
 
+	ExpandPlanSlices(result);
 	return result;
 }
 
@@ -6551,4 +6554,55 @@ isSimplyUpdatableQuery(Query *query)
 			return true;
 	}
 	return false;
+}
+
+extern Motion *findSenderMotion(PlannedStmt *plannedstmt, int sliceIndex);
+
+static bool
+ExpandCheckWalker(Node *node, void *ctx)
+{
+	if (node == NULL)
+		return false;
+	if (IsA(node, Motion))
+		return ((Motion*)node)->motionType == MOTIONTYPE_EXPLICIT ||
+			   ((Motion*)node)->motionType == MOTIONTYPE_GATHER ||
+			   ((Motion*)node)->motionType == MOTIONTYPE_GATHER_SINGLE; 
+	if (IsA(node, SeqScan) || IsA(node, IndexScan) || IsA(node, Sequence) ||
+		IsA(node, DynamicSeqScan) || IsA(node, DynamicIndexScan)  || IsA(node, IndexOnlyScan) ||
+		IsA(node, TidScan) || IsA(node, SubPlan))  // Use a GUC to represent the set of plannode?
+		return true;
+	return plan_tree_walker(node, ExpandCheckWalker, ctx, false);
+}
+
+static void
+ExpandSlice(PlannedStmt *stmt, PlanSlice *slice)
+{
+	if (slice->gangType != GANGTYPE_PRIMARY_READER)
+		return;
+	if (slice->directDispatch.isDirectDispatch)
+		return;	
+	plan_tree_base_prefix walkerctx;
+	walkerctx.node = (Node*)stmt;
+	Motion *motnode = findSenderMotion(stmt, slice->sliceIndex);
+	if (plan_tree_walker((Node*)motnode, ExpandCheckWalker, &walkerctx, false))
+		return;  // check failed, can't expand this planslice.
+	slice->numsegments *= segment_expansion_coeff;
+	return;
+}
+
+/*
+ * Expand the numsegments for a slice to expansion_coeff * primary segments when possible.
+ * The plan slice that can be expanded should meet the following requirements:
+ * 
+ * - gangType should be GANGTYPE_PRIMARY_READER.
+ * - the plantree executed by plan slice should not include operators that may read local data, 
+ *   such as SeqScan, IndexScan.
+ * - the MotionType of the child slice shouldn't be MOTIONTYPE_EXPLICIT, MOTIONTYPE_GATHER, MOTIONTYPE_GATHER_SINGLE.
+ * - the PlanSlice has no direct dispatch.
+ */
+static void 
+ExpandPlanSlices(PlannedStmt *stmt)
+{
+	for (int i = 0; i < stmt->numSlices; ++i) 
+		ExpandSlice(stmt, &stmt->slices[i]);
 }

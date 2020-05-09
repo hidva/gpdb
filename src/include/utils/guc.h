@@ -294,6 +294,7 @@ extern bool gp_local_distributed_cache_stats;
 extern bool gp_appendonly_verify_block_checksums;
 extern bool gp_appendonly_verify_write_block;
 extern bool gp_appendonly_compaction;
+extern int  segment_expansion_coeff;
 
 /*
  * Threshold of the ratio of dirty data in a segment file

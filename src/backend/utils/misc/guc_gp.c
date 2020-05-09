@@ -155,6 +155,7 @@ bool		gp_create_table_random_default_distribution = true;
 bool		gp_allow_non_uniform_partitioning_ddl = true;
 bool		gp_enable_exchange_default_partition = false;
 int			dtx_phase2_retry_second = 0;
+int			segment_expansion_coeff = 1;
 
 bool		log_dispatch_stats = false;
 
@@ -2890,6 +2891,17 @@ struct config_bool ConfigureNamesBool_gp[] =
 
 struct config_int ConfigureNamesInt_gp[] =
 {
+	{
+		{"segment_expansion_coeff", PGC_USERSET, UNGROUPED,
+			gettext_noop("the coefficient of segment expansion, "
+						 "the number of QE for a slice can be at most segment_expansion_coeff * primary segments."),
+			NULL
+		},
+		&segment_expansion_coeff,
+		1, 1, INT_MAX,
+		NULL, NULL, NULL
+	},
+
 	{
 		{"readable_external_table_timeout", PGC_USERSET, EXTERNAL_TABLES,
 			gettext_noop("Cancel the query if no data read within N seconds."),

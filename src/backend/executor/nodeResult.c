@@ -278,7 +278,9 @@ TupleMatchesHashFilter(ResultState *node, TupleTableSlot *resultSlot)
 
 		int targetSeg = cdbhashreduce(node->hashFilter);
 
-		res = (targetSeg == GpIdentity.segindex);
+		if (!QEIDInSliceIsValid())
+			elog(ERROR, "QEIDInSlice is not valid!");
+		res = (targetSeg == QEIDInSlice);
 	}
 
 	return res;

@@ -1115,6 +1115,15 @@ exec_mpp_query(const char *query_string,
 
 			/* Set global sliceid variable for elog. */
 			currentSliceId = sliceTable->localSlice;
+			int qeid;
+			ListCell *cell;
+			foreach_with_count(cell, slice->primaryProcesses, qeid) {
+				CdbProcess *qeprocess = (CdbProcess*)lfirst(cell);
+				if (qeprocess && qeprocess->pid == MyProcPid) {
+					QEIDInSlice = qeid;
+					break;
+				}
+			}
 		}
 
 		if (ddesc->oidAssignments)

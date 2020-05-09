@@ -1,3 +1,4 @@
+		"segment_expansion_coeff",
 		"allow_segment_DML",
 		"allow_system_table_mods",
 		"application_name",

@@ -242,8 +242,10 @@ execMotionSender(MotionState *node)
 			done = true;
 		}
 		else if (motion->motionType == MOTIONTYPE_GATHER_SINGLE &&
-				 GpIdentity.segindex != (gp_session_id % node->numHashSegments))
+				 QEIDInSlice != (gp_session_id % node->numHashSegments))
 		{
+			if (!QEIDInSliceIsValid())
+				elog(ERROR, "QEIDInSlice is not valid!");
 			/*
 			 * For explicit gather motion, receiver gets data from one
 			 * segment only. The others execute the subplan normally, but

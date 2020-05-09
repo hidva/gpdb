@@ -776,6 +776,8 @@ typedef struct GpId
  * Global variable declaration for the data for the single row of gp_id table
  */
 extern GpId GpIdentity;
+extern int32 QEIDInSlice;
+extern bool QEIDInSliceIsValid(void);
 extern int get_dbid_string_length(void);
 #define UNINITIALIZED_GP_IDENTITY_VALUE (-10000)
 #define IS_QUERY_DISPATCHER() (GpIdentity.segindex == MASTER_CONTENT_ID)

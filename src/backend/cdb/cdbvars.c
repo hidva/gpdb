@@ -328,6 +328,12 @@ bool		gp_cost_hashjoin_chainwalk = false;
 GpId		GpIdentity = {UNINITIALIZED_GP_IDENTITY_VALUE, UNINITIALIZED_GP_IDENTITY_VALUE};
 
 /*
+ * This variable is initialized by exec_mpp_query.
+ * QEIDInSlice is the index of current QE in ExecSlice::primaryProcesses of its slice.
+ */
+int32		QEIDInSlice = -33;
+
+/*
  * Keep track of a few dispatch-related  statistics:
  */
 int			cdb_total_slices = 0;
@@ -393,6 +399,10 @@ role_to_string(GpRoleValue role)
 	}
 }
 
+bool QEIDInSliceIsValid(void) 
+{
+	return QEIDInSlice >= 0;
+}
 
 /*
  * Check and Assign routines for "gp_session_role" option.  Because this variable

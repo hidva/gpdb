@@ -1553,7 +1553,7 @@ initConnHashTable(ConnHashTable *ht, MemoryContext cxt)
 	int			i;
 
 	ht->cxt = cxt;
-	ht->size = Gp_role == GP_ROLE_DISPATCH ? (getgpsegmentCount() * 2) : ic_htab_size;
+	ht->size = Gp_role == GP_ROLE_DISPATCH ? (getgpsegmentCount() * segment_expansion_coeff * 2) : ic_htab_size;
 	Assert(ht->size > 0);
 
 	if (ht->cxt)
