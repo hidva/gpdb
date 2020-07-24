@@ -344,9 +344,10 @@ lazy_vacuum_rel_heap(Relation onerel, int options, VacuumParams *params,
 	new_frozen_xid = scanned_all_unfrozen ? FreezeLimit : InvalidTransactionId;
 	new_min_multi = scanned_all_unfrozen ? MultiXactCutoff : InvalidMultiXactId;
 
-	vac_update_relstats(onerel,
+	vac_update_relstats_ex(onerel,
 						new_rel_pages,
 						new_rel_tuples,
+						vacrelstats->new_dead_tuples,
 						new_rel_allvisible,
 						vacrelstats->hasindex,
 						new_frozen_xid,
@@ -359,10 +360,14 @@ lazy_vacuum_rel_heap(Relation onerel, int options, VacuumParams *params,
 	if (new_live_tuples < 0)
 		new_live_tuples = 0;	/* just in case */
 
+	if (!(IS_QUERY_DISPATCHER() &&
+		 (GpPolicyIsReplicated(onerel->rd_cdbpolicy) || GpPolicyIsPartitioned(onerel->rd_cdbpolicy))))
+	{
 	pgstat_report_vacuum(RelationGetRelid(onerel),
 						 onerel->rd_rel->relisshared,
 						 new_live_tuples,
 						 vacrelstats->new_dead_tuples);
+	}
 	pgstat_progress_end_command();
 
 	if (gp_indexcheck_vacuum == INDEX_CHECK_ALL ||

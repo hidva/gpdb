@@ -1023,6 +1023,16 @@ vac_update_relstats_from_list(List *updated_stats)
 			stats->rel_pages = stats->rel_pages / rel->rd_cdbpolicy->numsegments;
 			stats->rel_tuples = stats->rel_tuples / rel->rd_cdbpolicy->numsegments;
 			stats->relallvisible = stats->relallvisible / rel->rd_cdbpolicy->numsegments;
+			stats->rel_deadtuples = stats->rel_deadtuples / rel->rd_cdbpolicy->numsegments;
+		}
+
+		if (GpPolicyIsReplicated(rel->rd_cdbpolicy) || GpPolicyIsPartitioned(rel->rd_cdbpolicy))
+		{
+			double new_live_tuples = stats->rel_tuples - stats->rel_deadtuples;
+			if (new_live_tuples < 0)
+				new_live_tuples = 0;
+			pgstat_report_vacuum(RelationGetRelid(rel), rel->rd_rel->relisshared,
+				new_live_tuples, stats->rel_deadtuples);
 		}
 
 		/*
@@ -1079,8 +1089,9 @@ vac_update_relstats_from_list(List *updated_stats)
  *		This routine is shared by VACUUM and ANALYZE.
  */
 void
-vac_update_relstats(Relation relation,
+vac_update_relstats_ex(Relation relation,
 					BlockNumber num_pages, double num_tuples,
+					double num_deadtuples,
 					BlockNumber num_all_visible_pages,
 					bool hasindex, TransactionId frozenxid,
 					MultiXactId minmulti,
@@ -1130,6 +1141,7 @@ vac_update_relstats(Relation relation,
 			stats.relid = RelationGetRelid(relation);
 			stats.rel_pages = num_pages;
 			stats.rel_tuples = num_tuples;
+			stats.rel_deadtuples = num_deadtuples;
 			stats.relallvisible = num_all_visible_pages;
 			pq_sendint(&buf, sizeof(VPgClassStats), sizeof(int));
 			pq_sendbytes(&buf, (char *) &stats, sizeof(VPgClassStats));
@@ -1290,6 +1302,19 @@ vac_update_relstats(Relation relation,
 	heap_close(rd, RowExclusiveLock);
 }
 
+void vac_update_relstats(Relation relation,
+					BlockNumber num_pages,
+					double num_tuples,
+					BlockNumber num_all_visible_pages,
+					bool hasindex,
+					TransactionId frozenxid,
+					MultiXactId minmulti,
+					bool in_outer_xact,
+					bool isvacuum)
+{
+	vac_update_relstats_ex(relation, num_pages, num_tuples, 0 /* num_deadtuples */ ,
+		num_all_visible_pages, hasindex, frozenxid, minmulti, in_outer_xact, isvacuum);
+}
 
 /*
  *	vac_update_datfrozenxid() -- update pg_database.datfrozenxid for our DB
@@ -2399,6 +2424,7 @@ vacuum_combine_stats(VacuumStatsContext *stats_context, CdbPgResults* cdb_pgresu
 				tmp_stats->rel_pages += pgclass_stats->rel_pages;
 				tmp_stats->rel_tuples += pgclass_stats->rel_tuples;
 				tmp_stats->relallvisible += pgclass_stats->relallvisible;
+				tmp_stats->rel_deadtuples += pgclass_stats->rel_deadtuples;
 				break;
 			}
 		}

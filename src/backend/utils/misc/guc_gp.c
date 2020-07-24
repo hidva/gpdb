@@ -546,6 +546,26 @@ IndexCheckType gp_indexcheck_vacuum = INDEX_CHECK_NONE;
 struct config_bool ConfigureNamesBool_gp[] =
 {
 	{
+		{"gp_autovacuum", PGC_SIGHUP, AUTOVACUUM,
+			gettext_noop("Enable autovacuum in gp"),
+			NULL
+		},
+		&gp_autovacuum,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"gp_track_counts", PGC_SIGHUP, STATS_COLLECTOR,
+			gettext_noop("Collects statistics for autovacuum in gp."),
+			NULL
+		},
+		&gp_track_counts,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"maintenance_mode", PGC_POSTMASTER, CUSTOM_OPTIONS,
 			gettext_noop("Maintenance Mode"),
 			NULL,
