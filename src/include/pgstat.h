@@ -20,6 +20,7 @@
 #include "storage/proc.h"
 #include "utils/hsearch.h"
 #include "utils/relcache.h"
+#include "postmaster/autostats.h"
 
 
 /* ----------
@@ -1071,6 +1072,7 @@ extern PgStat_TableStatus *find_tabstat_entry(Oid rel_id);
 extern PgStat_BackendFunctionEntry *find_funcstat_entry(Oid func_id);
 
 extern void pgstat_report_resgroup(Oid groupid);
+extern void pgstat_report_tabstat(AutoStatsCmdType cmdtype, Oid reloid, uint64 tuples);
 
 extern void pgstat_initstats(Relation rel);
 

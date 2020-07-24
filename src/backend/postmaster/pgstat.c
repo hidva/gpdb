@@ -68,6 +68,7 @@
 #include "utils/snapmgr.h"
 #include "utils/timestamp.h"
 #include "utils/tqual.h"
+#include "utils/lsyscache.h"
 #include "cdb/cdbvars.h"
 #include "commands/resgroupcmds.h"
 
@@ -5509,7 +5510,10 @@ pgstat_recv_analyze(PgStat_MsgAnalyze *msg, int len)
 	tabentry = pgstat_get_tab_entry(dbentry, msg->m_tableoid, true);
 
 	tabentry->n_live_tuples = msg->m_live_tuples;
+	if (msg->m_dead_tuples >= 0)
+	{
 	tabentry->n_dead_tuples = msg->m_dead_tuples;
+	}
 
 	/*
 	 * If commanded, reset changes_since_analyze to zero.  This forgets any
@@ -5964,4 +5968,62 @@ pgstat_db_requested(Oid databaseid)
 		return true;
 
 	return false;
+}
+
+static void
+gp_pgstat_count_heap_update(PgStat_TableStatus *pgstat_info, PgStat_Counter ntuples)
+{
+	int nest_level = GetCurrentTransactionNestLevel();
+	if (pgstat_info->trans == NULL || pgstat_info->trans->nest_level != nest_level)
+		add_tabstat_xact_level(pgstat_info, nest_level);
+	pgstat_info->trans->tuples_updated += ntuples;
+	return;
+}
+
+static void
+gp_pgstat_count_heap_delete(PgStat_TableStatus *pgstat_info, PgStat_Counter ntuples)
+{
+	int nest_level = GetCurrentTransactionNestLevel();
+	if (pgstat_info->trans == NULL || pgstat_info->trans->nest_level != nest_level)
+		add_tabstat_xact_level(pgstat_info, nest_level);
+	pgstat_info->trans->tuples_deleted += ntuples;
+	return;
+}
+
+/*
+ * reloid must have been locked.
+ */
+void
+pgstat_report_tabstat(AutoStatsCmdType cmdtype, Oid reloid, uint64 tuples)
+{
+	if (Gp_role != GP_ROLE_DISPATCH || reloid == InvalidOid || tuples <= 0
+		|| get_rel_relkind(reloid) != RELKIND_RELATION)
+		return;
+
+	Relation rel = relation_open(reloid, NoLock);
+	if (!rel->pgstat_info)
+	{
+		relation_close(rel, NoLock);
+		return;
+	}
+
+	switch (cmdtype)
+	{
+		case AUTOSTATS_CMDTYPE_CTAS:
+		case AUTOSTATS_CMDTYPE_INSERT:
+		case AUTOSTATS_CMDTYPE_COPY:
+			pgstat_count_heap_insert(rel, tuples);
+			break;
+		case AUTOSTATS_CMDTYPE_UPDATE:
+			gp_pgstat_count_heap_update(rel->pgstat_info, tuples);
+			break;
+		case AUTOSTATS_CMDTYPE_DELETE:
+			gp_pgstat_count_heap_delete(rel->pgstat_info, tuples);
+			break;
+		default:
+			break;
+	}
+
+	relation_close(rel, NoLock);
+	return;
 }

@@ -683,6 +683,8 @@ extern int	gp_autostats_mode;
 extern int	gp_autostats_mode_in_functions;
 extern int	gp_autostats_on_change_threshold;
 extern bool	log_autostats;
+extern bool gp_autovacuum;
+extern bool gp_track_counts;
 
 
 /* --------------------------------------------------------------------------------------------------
