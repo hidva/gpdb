@@ -371,7 +371,7 @@ CheckMyDatabase(const char *name, bool am_superuser)
 	 *
 	 * We do not enforce them for autovacuum worker processes either.
 	 */
-	if (IsUnderPostmaster && !IsAutoVacuumWorkerProcess())
+	if (IsUnderPostmaster && !IsAutoVacuumWorkerProcess() && Gp_role != GP_ROLE_EXECUTE)
 	{
 		/*
 		 * Check that the database is currently allowing connections.

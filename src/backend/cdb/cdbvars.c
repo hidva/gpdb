@@ -310,7 +310,6 @@ bool		log_autostats = true;
 
 /* auto vacuum in gp */
 bool		gp_autovacuum = true;
-bool		gp_track_counts = true;
 
 /* --------------------------------------------------------------------------------------------------
  * Server debugging

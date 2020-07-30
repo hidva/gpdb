@@ -880,6 +880,9 @@ buildGpQueryString(DispatchCommandQueryParms *pQueryParms,
 	Assert(DispatcherContext);
 	oldContext = MemoryContextSwitchTo(DispatcherContext);
 
+	if (command == NULL)
+		command = synthetic_sql;
+
 	/*
 	 * If either querytree or plantree is set then the query string is not so
 	 * important, dispatch a truncated version to increase the performance.

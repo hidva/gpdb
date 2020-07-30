@@ -556,16 +556,6 @@ struct config_bool ConfigureNamesBool_gp[] =
 	},
 
 	{
-		{"gp_track_counts", PGC_SIGHUP, STATS_COLLECTOR,
-			gettext_noop("Collects statistics for autovacuum in gp."),
-			NULL
-		},
-		&gp_track_counts,
-		true,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"maintenance_mode", PGC_POSTMASTER, CUSTOM_OPTIONS,
 			gettext_noop("Maintenance Mode"),
 			NULL,

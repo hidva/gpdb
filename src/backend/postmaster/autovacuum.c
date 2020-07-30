@@ -600,6 +600,7 @@ AutoVacLauncherMain(int argc, char *argv[])
 	 */
 	rebuild_database_list(InvalidOid);
 
+	AssertImply(gp_autovacuum, Gp_role == GP_ROLE_DISPATCH);
 	/* loop until shutdown request */
 	while (!got_SIGTERM)
 	{
@@ -1503,11 +1504,18 @@ AutoVacWorkerMain(int argc, char *argv[])
 
 	am_autovacuum_worker = true;
 
-	/* MPP-4990: Autovacuum always runs as utility-mode */
-	Gp_role = GP_ROLE_UTILITY;
+	if (!gp_autovacuum)
+	{
+		/* MPP-4990: Autovacuum always runs as utility-mode */
+		Gp_role = GP_ROLE_UTILITY;
+	}
+	AssertImply(gp_autovacuum, Gp_role == GP_ROLE_DISPATCH);
 
 	/* Identify myself via ps */
 	init_ps_display("autovacuum worker process", "", "", "");
+
+	if (PreAuthDelay > 0)
+		pg_usleep(PreAuthDelay * 1000000L);
 
 	SetProcessingMode(InitProcessing);
 
@@ -1903,7 +1911,7 @@ get_database_list(void)
 		 * VACUUMing manually, except for template0, which you cannot
 		 * VACUUM manually because you cannot connect to it.
 		 */
-		if (pgdatabase->datallowconn)
+		if (!gp_autovacuum && pgdatabase->datallowconn)
 			continue;
 
 		avdb = (avw_dbase *) palloc(sizeof(avw_dbase));
@@ -2052,6 +2060,7 @@ do_autovacuum(void)
 	 */
 	relScan = heap_beginscan_catalog(classRel, 0, NULL);
 
+	AssertImply(gp_autovacuum, Gp_role == GP_ROLE_DISPATCH);
 	/*
 	 * On the first pass, we collect main tables to vacuum, and also the main
 	 * table relid to TOAST relid mapping.
@@ -2172,6 +2181,8 @@ do_autovacuum(void)
 
 	heap_endscan(relScan);
 
+	if (!gp_autovacuum)
+	{
 	/* second pass: check TOAST tables */
 	ScanKeyInit(&key,
 				Anum_pg_class_relkind,
@@ -2226,6 +2237,7 @@ do_autovacuum(void)
 	}
 
 	heap_endscan(relScan);
+	}
 	heap_close(classRel, AccessShareLock);
 
 	/*
@@ -2688,7 +2700,7 @@ table_recheck_autovac(Oid relid, HTAB *table_toast_map,
 		tab = palloc(sizeof(autovac_table));
 		tab->at_relid = relid;
 		tab->at_sharedrel = classForm->relisshared;
-		tab->at_vacoptions = VACOPT_SKIPTOAST |
+		tab->at_vacoptions = (gp_autovacuum ? 0 : VACOPT_SKIPTOAST) |
 			(dovacuum ? VACOPT_VACUUM : 0) |
 			(doanalyze ? VACOPT_ANALYZE : 0) |
 			(!wraparound ? VACOPT_NOWAIT : 0);
@@ -2976,6 +2988,8 @@ autovac_report_activity(autovac_table *tab)
 bool
 AutoVacuumingActive(void)
 {
+	if (gp_autovacuum)
+		return Gp_role == GP_ROLE_DISPATCH;
 	if (!autovacuum_start_daemon || !pgstat_track_counts)
 		return false;
 	return true;

@@ -331,7 +331,7 @@ InitProcess(void)
 	 * as GP_ROLE_UTILITY to prevent unwanted GP_ROLE_DISPATCH MyProc settings
 	 * such as mppSessionId being valid and mppIsWriter set to true.
 	 */
-	if (IsAutoVacuumWorkerProcess() || am_walsender || am_ftshandler ||
+	if ((IsAutoVacuumWorkerProcess() && !gp_autovacuum) || am_walsender || am_ftshandler ||
 		IsFaultHandler)
 		Gp_role = GP_ROLE_UTILITY;
 
