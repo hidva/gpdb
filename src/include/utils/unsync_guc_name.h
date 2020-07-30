@@ -249,7 +249,6 @@
 		"gp_statistics_pullup_from_child_partition",
 		"gp_statistics_use_fkeys",
 		"gp_subtrans_warn_limit",
-		"gp_track_counts",
 		"gp_use_legacy_hashops",
 		"gp_vmem_limit_per_query",
 		"gp_vmem_protect_limit",

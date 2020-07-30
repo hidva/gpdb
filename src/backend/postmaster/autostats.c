@@ -282,10 +282,11 @@ auto_stats(AutoStatsCmdType cmdType, Oid relationOid, uint64 ntuples, bool inFun
 	TimestampTz start;
 	bool		policyCheck = false;
 
-	if (gp_track_counts)
-		pgstat_report_tabstat(cmdType, relationOid, ntuples);
 	if (gp_autovacuum)
+	{
+		pgstat_report_tabstat(cmdType, relationOid, ntuples);
 		return;
+	}
 
 	start = GetCurrentTimestamp();
 
