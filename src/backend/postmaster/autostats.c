@@ -29,6 +29,7 @@
 #include "nodes/plannodes.h"
 #include "parser/parsetree.h"
 #include "postmaster/autostats.h"
+#include "postmaster/autovacuum.h"
 #include "utils/acl.h"
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
@@ -282,7 +283,7 @@ auto_stats(AutoStatsCmdType cmdType, Oid relationOid, uint64 ntuples, bool inFun
 	TimestampTz start;
 	bool		policyCheck = false;
 
-	if (gp_autovacuum)
+	if (IS_QUERY_DISPATCHER() && AutoVacuumingActive())
 	{
 		pgstat_report_tabstat(cmdType, relationOid, ntuples);
 		return;

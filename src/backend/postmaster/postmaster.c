@@ -1997,16 +1997,9 @@ ServerLoop(void)
 			(AutoVacuumingActive() || start_autovac_launcher) &&
 			pmState == PM_RUN)
 		{
-			if (gp_autovacuum && Gp_role != GP_ROLE_DISPATCH)
-			{
-				Assert(start_autovac_launcher);
-				start_autovac_launcher = false;
-			} else
-			{
 			AutoVacPID = StartAutoVacLauncher();
 			if (AutoVacPID != 0)
 				start_autovac_launcher = false; /* signal processed */
-			}
 		}
 
 		/* If we have lost the stats collector, try to start a new one */
