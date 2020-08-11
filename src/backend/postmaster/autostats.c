@@ -283,12 +283,6 @@ auto_stats(AutoStatsCmdType cmdType, Oid relationOid, uint64 ntuples, bool inFun
 	TimestampTz start;
 	bool		policyCheck = false;
 
-	if (IS_QUERY_DISPATCHER() && AutoVacuumingActive())
-	{
-		pgstat_report_tabstat(cmdType, relationOid, ntuples);
-		return;
-	}
-
 	start = GetCurrentTimestamp();
 
 	if (Gp_role != GP_ROLE_DISPATCH || relationOid == InvalidOid

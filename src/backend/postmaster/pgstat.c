@@ -6027,3 +6027,12 @@ pgstat_report_tabstat(AutoStatsCmdType cmdtype, Oid reloid, uint64 tuples)
 	relation_close(rel, NoLock);
 	return;
 }
+
+void
+collect_tabstat(AutoStatsCmdType cmdType, Oid relationOid, uint64 ntuples, bool inFunction)
+{
+	if (IS_QUERY_DISPATCHER() && AutoVacuumingActive())
+		return pgstat_report_tabstat(cmdType, relationOid, ntuples);
+	else
+		return auto_stats(cmdType, relationOid, ntuples, inFunction);
+}
