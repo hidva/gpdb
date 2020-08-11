@@ -29,13 +29,11 @@
 #include "nodes/plannodes.h"
 #include "parser/parsetree.h"
 #include "postmaster/autostats.h"
-#include "postmaster/autovacuum.h"
 #include "utils/acl.h"
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "utils/timestamp.h"
-#include "pgstat.h"
 
 /*
  * Forward declarations.

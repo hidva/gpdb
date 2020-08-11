@@ -5511,9 +5511,7 @@ pgstat_recv_analyze(PgStat_MsgAnalyze *msg, int len)
 
 	tabentry->n_live_tuples = msg->m_live_tuples;
 	if (msg->m_dead_tuples >= 0)
-	{
-	tabentry->n_dead_tuples = msg->m_dead_tuples;
-	}
+		tabentry->n_dead_tuples = msg->m_dead_tuples;
 
 	/*
 	 * If commanded, reset changes_since_analyze to zero.  This forgets any
