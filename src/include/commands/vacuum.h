@@ -159,7 +159,6 @@ typedef struct VPgClassStats
 	Oid			relid;
 	BlockNumber rel_pages;
 	double		rel_tuples;
-	double		rel_deadtuples;
 	BlockNumber relallvisible;
 } VPgClassStats;
 
@@ -228,15 +227,6 @@ extern double vac_estimate_reltuples(Relation relation, bool is_analyze,
 extern void vac_update_relstats(Relation relation,
 					BlockNumber num_pages,
 					double num_tuples,
-					BlockNumber num_all_visible_pages,
-					bool hasindex,
-					TransactionId frozenxid,
-					MultiXactId minmulti,
-					bool in_outer_xact,
-					bool isvacuum);
-extern void vac_update_relstats_ex(Relation relation,
-					BlockNumber num_pages,
-					double num_tuples, double num_deadtuples,
 					BlockNumber num_all_visible_pages,
 					bool hasindex,
 					TransactionId frozenxid,
