@@ -231,7 +231,7 @@ typedef struct WorkerInfoData
 	TimestampTz wi_launchtime;
 	bool		wi_dobalance;
 	bool		wi_sharedrel;
-	bool		wi_for_analyze;
+	bool		wi_for_analyze;  /* GPDB only */
 	int			wi_cost_delay;
 	int			wi_cost_limit;
 	int			wi_cost_limit_base;
@@ -1768,6 +1768,7 @@ FreeWorkerInfo(int code, Datum arg)
 		MyWorkerInfo->wi_proc = NULL;
 		MyWorkerInfo->wi_launchtime = 0;
 		MyWorkerInfo->wi_dobalance = false;
+		MyWorkerInfo->wi_for_analyze = false;
 		MyWorkerInfo->wi_cost_delay = 0;
 		MyWorkerInfo->wi_cost_limit = 0;
 		MyWorkerInfo->wi_cost_limit_base = 0;
@@ -2829,8 +2830,14 @@ relation_needs_vacanalyze(Oid relid,
 	int			multixact_freeze_max_age;
 	TransactionId xidForceLimit;
 	MultiXactId multiForceLimit;
-	// Maybe we should pass for_analyze explicitly by a parameter.
-	bool		for_analyze = (Gp_role == GP_ROLE_DISPATCH);
+	bool		for_analyze;
+
+	/*
+	 * We don't need to hold AutovacuumLock here, since it should be read-only in the worker itself
+	 * once the MyWorkerInfo gets set, all the workers only care about its own value.
+	 */
+	Assert(MyWorkerInfo);
+	for_analyze = MyWorkerInfo->wi_for_analyze;
 
 	AssertArg(classForm != NULL);
 	AssertArg(OidIsValid(relid));
@@ -2936,6 +2943,11 @@ relation_needs_vacanalyze(Oid relid,
 	/* ANALYZE refuses to work with pg_statistics */
 	if (relid == StatisticRelationId)
 		*doanalyze = false;
+
+	/*
+	 * The Gp_role will be GP_ROLE_UTILITY when for_analyze is false, and do ANALYZE
+	 * in utility mode is useless, so just disable analyze here.
+	 */
 	if (!for_analyze)
 		*doanalyze = false;
 	else

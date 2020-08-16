@@ -5510,8 +5510,7 @@ pgstat_recv_analyze(PgStat_MsgAnalyze *msg, int len)
 	tabentry = pgstat_get_tab_entry(dbentry, msg->m_tableoid, true);
 
 	tabentry->n_live_tuples = msg->m_live_tuples;
-	if (msg->m_dead_tuples >= 0)
-		tabentry->n_dead_tuples = msg->m_dead_tuples;
+	tabentry->n_dead_tuples = msg->m_dead_tuples;
 
 	/*
 	 * If commanded, reset changes_since_analyze to zero.  This forgets any
@@ -5968,6 +5967,10 @@ pgstat_db_requested(Oid databaseid)
 	return false;
 }
 
+/*
+ * just as pgstat_count_heap_update(), with an extra parameter ntuples.
+ * ntuples is used to specify how many rows the caller has updated.
+ */
 static void
 gp_pgstat_count_heap_update(PgStat_TableStatus *pgstat_info, PgStat_Counter ntuples)
 {
@@ -5975,9 +5978,12 @@ gp_pgstat_count_heap_update(PgStat_TableStatus *pgstat_info, PgStat_Counter ntup
 	if (pgstat_info->trans == NULL || pgstat_info->trans->nest_level != nest_level)
 		add_tabstat_xact_level(pgstat_info, nest_level);
 	pgstat_info->trans->tuples_updated += ntuples;
-	return;
 }
 
+/*
+ * just as pgstat_count_heap_delete(), with an extra parameter ntuples.
+ * ntuples is used to specify how many rows the caller has deleted.
+ */
 static void
 gp_pgstat_count_heap_delete(PgStat_TableStatus *pgstat_info, PgStat_Counter ntuples)
 {
@@ -5985,14 +5991,16 @@ gp_pgstat_count_heap_delete(PgStat_TableStatus *pgstat_info, PgStat_Counter ntup
 	if (pgstat_info->trans == NULL || pgstat_info->trans->nest_level != nest_level)
 		add_tabstat_xact_level(pgstat_info, nest_level);
 	pgstat_info->trans->tuples_deleted += ntuples;
-	return;
 }
 
 /*
+ * Report the statistics gathered by QD to statistics collector.
+ * These parameters tell us that 'tuples' rows of table 'reloid' has changed,
+ * and 'cmdtype' specifies the type of change.
  * reloid must have been locked.
  */
 void
-pgstat_report_tabstat(AutoStatsCmdType cmdtype, Oid reloid, uint64 tuples)
+gp_pgstat_report_tabstat(AutoStatsCmdType cmdtype, Oid reloid, uint64 tuples)
 {
 	if (Gp_role != GP_ROLE_DISPATCH || reloid == InvalidOid || tuples <= 0
 		|| get_rel_relkind(reloid) != RELKIND_RELATION)
@@ -6023,14 +6031,18 @@ pgstat_report_tabstat(AutoStatsCmdType cmdtype, Oid reloid, uint64 tuples)
 	}
 
 	relation_close(rel, NoLock);
-	return;
 }
 
+/*
+ * collect_tabstat() should be called after QD have gathered the number of tuples changed in QEs.
+ * cmdType specifies the type of change.
+ * ntuples, relationOid means that 'tuples' rows of table 'relationOid' has changed.
+ */
 void
 collect_tabstat(AutoStatsCmdType cmdType, Oid relationOid, uint64 ntuples, bool inFunction)
 {
 	if (IS_QUERY_DISPATCHER() && AutoVacuumingActive())
-		return pgstat_report_tabstat(cmdType, relationOid, ntuples);
+		return gp_pgstat_report_tabstat(cmdType, relationOid, ntuples);
 	else
 		return auto_stats(cmdType, relationOid, ntuples, inFunction);
 }
