@@ -1506,23 +1506,11 @@ AutoVacWorkerMain(int argc, char *argv[])
 	sigjmp_buf	local_sigjmp_buf;
 	Oid			dbid;
 	bool		for_analyze;
-	GpRoleValue	orig_role;
 
 	am_autovacuum_worker = true;
 
 	/* MPP-4990: Autovacuum always runs as utility-mode */
 	Gp_role = GP_ROLE_UTILITY;
-	if (IS_QUERY_DISPATCHER() && AutoVacuumingActive())
-	{
-		/*
-		 * Gp_role for the current autovacuum worker should be determined by wi_for_analyze. 
-		 * But we don't know the value of wi_for_analyze now, so we set Gp_role to 
-		 * GP_ROLE_DISPATCH first. Gp_role will switch to GP_ROLE_UTILITY as needed 
-		 * after we get the wi_for_analyze.
-		 */
-		Gp_role = GP_ROLE_DISPATCH;
-	}
-	orig_role = Gp_role;
 
 	/* Identify myself via ps */
 	init_ps_display("autovacuum worker process", "", "", "");
@@ -1578,7 +1566,7 @@ AutoVacWorkerMain(int argc, char *argv[])
 	 */
 	if (sigsetjmp(local_sigjmp_buf, 1) != 0)
 	{
-		Gp_role = orig_role;
+		Gp_role = GP_ROLE_UTILITY;
 		/* Prevents interrupts while cleaning up */
 		HOLD_INTERRUPTS();
 
@@ -1719,13 +1707,13 @@ AutoVacWorkerMain(int argc, char *argv[])
 
 		AssertImply(!IS_QUERY_DISPATCHER(), for_analyze == false);
 		AssertImply(for_analyze, IS_QUERY_DISPATCHER() && AutoVacuumingActive());
-		if (!for_analyze && orig_role == GP_ROLE_DISPATCH)
-			Gp_role = GP_ROLE_UTILITY;
+		if (for_analyze)
+			Gp_role = GP_ROLE_DISPATCH;
 
 		do_autovacuum();
 
-		if (!for_analyze && orig_role == GP_ROLE_DISPATCH)
-			Gp_role = orig_role;
+		if (for_analyze)
+			Gp_role = GP_ROLE_UTILITY;
 	}
 
 	/*

@@ -5055,7 +5055,7 @@ PostgresMain(int argc, char *argv[],
 			restore_guc_to_QE();
 
 
-		// firstchar may be -1, it will cause AssertFailed if we enable cassert
+		/* firstchar may be -1, it will cause AssertFailed if we enable cassert */
 		ereport((Debug_print_full_dtm ? LOG : DEBUG5),
 				(errmsg_internal("First char: '%d'; gp_role = '%s'.", firstchar, role_to_string(Gp_role))));
 
