@@ -5510,8 +5510,7 @@ pgstat_recv_analyze(PgStat_MsgAnalyze *msg, int len)
 	tabentry = pgstat_get_tab_entry(dbentry, msg->m_tableoid, true);
 
 	tabentry->n_live_tuples = msg->m_live_tuples;
-	if (msg->m_dead_tuples >= 0)
-		tabentry->n_dead_tuples = msg->m_dead_tuples;
+	tabentry->n_dead_tuples = msg->m_dead_tuples;
 
 	/*
 	 * If commanded, reset changes_since_analyze to zero.  This forgets any
@@ -5975,7 +5974,6 @@ gp_pgstat_count_heap_update(PgStat_TableStatus *pgstat_info, PgStat_Counter ntup
 	if (pgstat_info->trans == NULL || pgstat_info->trans->nest_level != nest_level)
 		add_tabstat_xact_level(pgstat_info, nest_level);
 	pgstat_info->trans->tuples_updated += ntuples;
-	return;
 }
 
 static void
@@ -5985,7 +5983,6 @@ gp_pgstat_count_heap_delete(PgStat_TableStatus *pgstat_info, PgStat_Counter ntup
 	if (pgstat_info->trans == NULL || pgstat_info->trans->nest_level != nest_level)
 		add_tabstat_xact_level(pgstat_info, nest_level);
 	pgstat_info->trans->tuples_deleted += ntuples;
-	return;
 }
 
 /*
@@ -6023,7 +6020,6 @@ pgstat_report_tabstat(AutoStatsCmdType cmdtype, Oid reloid, uint64 tuples)
 	}
 
 	relation_close(rel, NoLock);
-	return;
 }
 
 void

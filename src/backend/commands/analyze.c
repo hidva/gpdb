@@ -963,16 +963,8 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 	 * auto-analyze to do.
 	 */
 	if (!inh)
-	{
-		/*
-		 * acquire_sample_rows_ao() always set totaldeadrows to 0. So we shouldn't report
-		 * it.
-		 */
-		if (RelationIsAppendOptimized(onerel))
-			totaldeadrows = -1;
 		pgstat_report_analyze(onerel, totalrows, totaldeadrows,
 							  (va_cols == NIL));
-	}
 
 	/* If this isn't part of VACUUM ANALYZE, let index AMs do cleanup */
 	if (!(options & VACOPT_VACUUM))
