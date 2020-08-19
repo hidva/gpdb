@@ -1199,9 +1199,25 @@ do_start_worker(void)
 		avw_dbase  *tmp = lfirst(cell);
 		dlist_iter	iter;
 
-		/* Check to see if this one is at risk of wraparound */
-		if (TransactionIdPrecedes(tmp->adw_frozenxid, xidForceLimit))
+		/* Check to see if this one is at risk of wraparound
+		 *
+		 * GPDB enable auto-analyze on master, and currently only template0
+		 * need to deal with the xid wrap around. So ignore other dbs for
+		 * the wrap around check.
+		 */
+		if (!tmp->adw_allowconn &&
+			TransactionIdPrecedes(tmp->adw_frozenxid, xidForceLimit))
 		{
+			/*
+			 * GPDB: Set avdb to NULL to always process template0 wrap around
+			 * first. Otherwise a normal db which has oldest adw_frozenxid will
+			 * prevent template0 wrap around. And we never execute VACUUM
+			 * through autovacuum on the normal db currently to advance
+			 * the db's adw_frozenxid.
+			 */
+			if (avdb != NULL && avdb->adw_allowconn)
+				avdb = NULL;
+
 			if (avdb == NULL ||
 				TransactionIdPrecedes(tmp->adw_frozenxid,
 									  avdb->adw_frozenxid))
@@ -1211,8 +1227,19 @@ do_start_worker(void)
 		}
 		else if (for_xid_wrap)
 			continue;			/* ignore not-at-risk DBs */
-		else if (MultiXactIdPrecedes(tmp->adw_minmulti, multiForceLimit))
+		else if (!tmp->adw_allowconn &&
+				 MultiXactIdPrecedes(tmp->adw_minmulti, multiForceLimit))
 		{
+			/*
+			 * GPDB: Set avdb to NULL to always process template0 wrap around
+			 * first. Otherwise a normal db which has oldest adw_minmulti will
+			 * prevent template0 wrap around. And we never execute VACUUM
+			 * through autovacuum on the normal db currently to advance the
+			 * db's adw_minmulti.
+			 */
+			if (avdb != NULL && avdb->adw_allowconn)
+				avdb = NULL;
+
 			if (avdb == NULL ||
 				MultiXactIdPrecedes(tmp->adw_minmulti, avdb->adw_minmulti))
 				avdb = tmp;
@@ -1506,7 +1533,7 @@ AutoVacWorkerMain(int argc, char *argv[])
 {
 	sigjmp_buf	local_sigjmp_buf;
 	Oid			dbid;
-	bool		for_analyze;
+	bool		for_analyze = false;
 	GpRoleValue	orig_role;
 
 	am_autovacuum_worker = true;
@@ -1719,7 +1746,7 @@ AutoVacWorkerMain(int argc, char *argv[])
 		recentMulti = ReadNextMultiXactId();
 
 		AssertImply(!IS_QUERY_DISPATCHER(), for_analyze == false);
-		AssertImply(for_analyze, IS_QUERY_DISPATCHER() && AutoVacuumingActive());
+		AssertImply(for_analyze, IS_QUERY_DISPATCHER());
 		if (!for_analyze && orig_role == GP_ROLE_DISPATCH)
 			Gp_role = GP_ROLE_UTILITY;
 
@@ -2487,6 +2514,12 @@ do_autovacuum(void)
 			FlushErrorState();
 			MemoryContextResetAndDeleteChildren(PortalContext);
 
+#ifdef FAULT_INJECTOR
+			FaultInjector_InjectFaultIfSet(
+				"auto_vac_worker_abort", DDLNotSpecified,
+				"", tab->at_relname);
+#endif
+
 			/* restart our transaction for the following operations */
 			StartTransactionCommand();
 			RESUME_INTERRUPTS();
@@ -2965,7 +2998,6 @@ relation_needs_vacanalyze(Oid relid,
 	if (*doanalyze)
 	{
 		Assert(for_analyze && Gp_role == GP_ROLE_DISPATCH);
-		Assert(IS_QUERY_DISPATCHER() && AutoVacuumingActive());
 		if (rel_part_status(relid) != PART_STATUS_NONE)
 			*doanalyze = false;
 	}
@@ -2996,6 +3028,12 @@ autovacuum_do_vac_analyze(autovac_table *tab, BufferAccessStrategy bstrategy)
 
 	/* Let pgstat know what we're doing */
 	autovac_report_activity(tab);
+
+#ifdef FAULT_INJECTOR
+	FaultInjector_InjectFaultIfSet(
+		"auto_vac_worker_after_report_activity", DDLNotSpecified,
+		"", tab->at_relname);
+#endif
 
 	vacuum(tab->at_vacoptions, &rangevar, tab->at_relid, &tab->at_params, NIL,
 		   bstrategy, true);

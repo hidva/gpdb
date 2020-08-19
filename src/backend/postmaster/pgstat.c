@@ -73,6 +73,8 @@
 #include "cdb/cdbpartition.h"
 #include "commands/resgroupcmds.h"
 
+#include "utils/faultinjector.h"
+
 
 /* ----------
  * Timer definitions.
@@ -6031,6 +6033,12 @@ gp_pgstat_report_tabstat(AutoStatsCmdType cmdtype, Oid reloid, uint64 tuples)
 			break;
 	}
 
+#ifdef FAULT_INJECTOR
+	FaultInjector_InjectFaultIfSet(
+		"gp_pgstat_report_on_master", DDLNotSpecified,
+		"", RelationGetRelationName(rel));
+#endif
+
 	relation_close(rel, NoLock);
 }
 
@@ -6042,7 +6050,7 @@ gp_pgstat_report_tabstat(AutoStatsCmdType cmdtype, Oid reloid, uint64 tuples)
 void
 collect_tabstat(AutoStatsCmdType cmdType, Oid relationOid, uint64 ntuples, bool inFunction)
 {
-	if (Gp_role == GP_ROLE_DISPATCH && AutoVacuumingActive() && 
+	if (Gp_role == GP_ROLE_DISPATCH && AutoVacuumingActive() &&
 		rel_part_status(relationOid) == PART_STATUS_NONE)
 		return gp_pgstat_report_tabstat(cmdType, relationOid, ntuples);
 	else
