@@ -106,6 +106,7 @@
 #include "utils/tqual.h"
 
 #include "cdb/cdbvars.h"
+#include "cdb/cdbpartition.h"
 #include "utils/faultinjector.h"
 
 
@@ -2954,6 +2955,19 @@ relation_needs_vacanalyze(Oid relid,
 	{
 		*dovacuum = false;
 		*wraparound = false;
+	}
+
+	/*
+	 * There are a lot of things to do to enable auto-ANALYZE for partition tables,
+	 * see PR10515 for details.
+	 * Currently, we just disable auto-ANALYZE for partition tables.
+	 */
+	if (*doanalyze)
+	{
+		Assert(for_analyze && Gp_role == GP_ROLE_DISPATCH);
+		Assert(IS_QUERY_DISPATCHER() && AutoVacuumingActive());
+		if (rel_part_status(relid) != PART_STATUS_NONE)
+			*doanalyze = false;
 	}
 }
 

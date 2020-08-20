@@ -70,6 +70,7 @@
 #include "utils/tqual.h"
 #include "utils/lsyscache.h"
 #include "cdb/cdbvars.h"
+#include "cdb/cdbpartition.h"
 #include "commands/resgroupcmds.h"
 
 
@@ -6041,7 +6042,8 @@ gp_pgstat_report_tabstat(AutoStatsCmdType cmdtype, Oid reloid, uint64 tuples)
 void
 collect_tabstat(AutoStatsCmdType cmdType, Oid relationOid, uint64 ntuples, bool inFunction)
 {
-	if (IS_QUERY_DISPATCHER() && AutoVacuumingActive())
+	if (Gp_role == GP_ROLE_DISPATCH && AutoVacuumingActive() && 
+		rel_part_status(relationOid) == PART_STATUS_NONE)
 		return gp_pgstat_report_tabstat(cmdType, relationOid, ntuples);
 	else
 		return auto_stats(cmdType, relationOid, ntuples, inFunction);
