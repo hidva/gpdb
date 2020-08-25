@@ -6043,9 +6043,20 @@ gp_pgstat_report_tabstat(AutoStatsCmdType cmdtype, Oid reloid, uint64 tuples)
 }
 
 /*
- * collect_tabstat() should be called after QD have gathered the number of tuples changed in QEs.
+ * collect_tabstat - collect relation's pgstat or do auto_stats.
+ * it should be called after QD have gathered the number of tuples changed in QEs.
  * cmdType specifies the type of change.
- * ntuples, relationOid means that 'tuples' rows of table 'relationOid' has changed.
+ *
+ * ntuples means the processed tuples for a relation at end of a command execution
+ * on QD.
+ *
+ * NOTE: If the autovacuum is enabled on master, collect gpstat for the target
+ * relation for ANALYZE. Currently this is not support for partition table.
+ * This is because we don't have accurate pgstat on QD for parent table and child
+ * table. So run auto_stats for partition table.
+ * For relation who's storage parameter autovacuum_enable=false with autovacuum
+ * enabled, neither autovacuum ANALYZE nor auto_stats will execute for it. Users
+ * need to manually run ANALYZE for it. This is same with Postgres.
  */
 void
 collect_tabstat(AutoStatsCmdType cmdType, Oid relationOid, uint64 ntuples, bool inFunction)

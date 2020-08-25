@@ -2154,19 +2154,14 @@ do_autovacuum(void)
 		/*
 		 * Check if it is a temp table (presumably, of some other backend's).
 		 * We cannot safely process other backends' temp tables.
+		 *
+		 * GPDB: Currently we enable autovacuum ANALYZE on QD(Master), so the below
+		 * code only process temp tables on Master. Segments' temp tables still
+		 * need to be considered in future.
 		 */
 		if (classForm->relpersistence == RELPERSISTENCE_TEMP)
 		{
 			int			backendID;
-
-			/*
-			 * GPDB_91_MERGE_FIXME: Autovacuum operates only on template0
-			 * database in Greenplum.  We expect no temp tables in template0.
-			 * Whenever we allow autovacuum to operate on user databases, we
-			 * must deal with the logic to detect other backend's temp tables
-			 * below.
-			 */
-			Assert(false);
 			
 			backendID = GetTempNamespaceBackendId(classForm->relnamespace);
 
