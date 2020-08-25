@@ -2,9 +2,7 @@
 \a
 set client_min_messages to warning;
 
--- start_ignore
-\!psql -X -t -A -d postgres -c 'show autovacuum' -o .collect_tabstat_regress_test_origin_autovacuum.txt
--- end_ignore
+-- Enable AUTOVACUUM launcher
 ALTER SYSTEM SET autovacuum = on;
 select pg_reload_conf();
 
@@ -146,9 +144,7 @@ rollback;
 select pg_sleep(0.77); -- Force pgstat_report_stat() to send tabstat.
 select n_tup_ins, n_tup_upd, n_tup_del, n_tup_hot_upd, n_live_tup, n_dead_tup, n_mod_since_analyze from pg_stat_all_tables_internal where relid = 'table_for_truncate_abort'::regclass;
 
--- start_ignore
-\!gpconfig -c autovacuum -v `cat .collect_tabstat_regress_test_origin_autovacuum.txt` --masteronly
-\!rm -vf .collect_tabstat_regress_test_origin_autovacuum.txt
--- end_ignore
+-- Disable AUTOVACUUM launcher
+ALTER SYSTEM SET autovacuum = off;
 select pg_reload_conf();
 
