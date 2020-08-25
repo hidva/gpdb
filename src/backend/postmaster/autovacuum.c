@@ -1203,22 +1203,13 @@ do_start_worker(void)
 		 *
 		 * GPDB enable auto-analyze on master, and currently only template0
 		 * need to deal with the xid wrap around. So ignore other dbs for
-		 * the wrap around check.
+		 * the wraparound check.
 		 */
 		if (!tmp->adw_allowconn &&
 			TransactionIdPrecedes(tmp->adw_frozenxid, xidForceLimit))
 		{
-			/*
-			 * GPDB: Set avdb to NULL to always process template0 wrap around
-			 * first. Otherwise a normal db which has oldest adw_frozenxid will
-			 * prevent template0 wrap around. And we never execute VACUUM
-			 * through autovacuum on the normal db currently to advance
-			 * the db's adw_frozenxid.
-			 */
-			if (avdb != NULL && avdb->adw_allowconn)
-				avdb = NULL;
-
 			if (avdb == NULL ||
+				avdb->adw_allowconn ||  /* GPDB: only do anti-wraparound for !datallowconn databases */
 				TransactionIdPrecedes(tmp->adw_frozenxid,
 									  avdb->adw_frozenxid))
 				avdb = tmp;
@@ -1230,17 +1221,8 @@ do_start_worker(void)
 		else if (!tmp->adw_allowconn &&
 				 MultiXactIdPrecedes(tmp->adw_minmulti, multiForceLimit))
 		{
-			/*
-			 * GPDB: Set avdb to NULL to always process template0 wrap around
-			 * first. Otherwise a normal db which has oldest adw_minmulti will
-			 * prevent template0 wrap around. And we never execute VACUUM
-			 * through autovacuum on the normal db currently to advance the
-			 * db's adw_minmulti.
-			 */
-			if (avdb != NULL && avdb->adw_allowconn)
-				avdb = NULL;
-
 			if (avdb == NULL ||
+				avdb->adw_allowconn ||  /* GPDB: only do anti-wraparound for !datallowconn databases */
 				MultiXactIdPrecedes(tmp->adw_minmulti, avdb->adw_minmulti))
 				avdb = tmp;
 			for_multi_wrap = true;
