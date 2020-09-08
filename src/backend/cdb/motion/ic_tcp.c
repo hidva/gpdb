@@ -69,6 +69,12 @@ static inline int timeCmp(struct timeval *t1, struct timeval *t2);
 
 /* listener backlog is calculated at listener-creation time */
 int			listenerBacklog = 128;
+/*
+ * ICSenderSocket is used to tell the kernel that ICSenderPort is being used.
+ * ICSenderSocket is not used directly by the code.
+ */
+static int ICSenderSocket = -1;
+static uint16 ICSenderPort = 0;
 
 /* our timeout value for select() and other socket operations. */
 static struct timeval tval;
@@ -126,22 +132,24 @@ static void print_connection(ChunkTransportState *transportStates, int fd, const
 #endif
 
 /*
- * setupTCPListeningSocket
+ * create a SOCK_STREAM socket, and bind it at the address specified by localaddr and *bindPort.
+ * *bindPort is 0 means that we will use the port chose by kernel.
+ * After return, *socketFd is the socket, and *bindPort is the port chose by kernel.
+ * If reuseport is true, set SO_REUSEPORT on *socketFd
  */
 static void
-setupTCPListeningSocket(int backlog, int *listenerSocketFd, uint16 *listenerPort)
+setupTCPSocket(bool reuseport, const char *localaddr, struct addrinfo *userhint, uint16 *bindPort, int *socketFd)
 {
 	int			errnoSave;
 	int			fd = -1;
 	const char *fun;
 
-	*listenerSocketFd = -1;
-	*listenerPort = 0;
+	*socketFd = -1;
 
 	struct sockaddr_storage addr;
 	socklen_t	addrlen;
 
-	struct addrinfo hints;
+	struct addrinfo default_hints;
 	struct addrinfo *addrs,
 			   *rp;
 	int			s;
@@ -151,34 +159,24 @@ setupTCPListeningSocket(int backlog, int *listenerSocketFd, uint16 *listenerPort
 	 * we let the system pick the TCP port here so we don't have to manage
 	 * port resources ourselves.  So set the port to 0 (any port)
 	 */
-	snprintf(service, 32, "%d", 0);
-	memset(&hints, 0, sizeof(struct addrinfo));
-	hints.ai_family = AF_UNSPEC;	/* Allow IPv4 or IPv6 */
-	hints.ai_socktype = SOCK_STREAM;	/* Two-way, out of band connection */
-	hints.ai_flags = AI_PASSIVE;	/* For wildcard IP address */
-	hints.ai_protocol = 0;		/* Any protocol - TCP implied for network use due to SOCK_STREAM */
-
-	/*
-	 * We set interconnect_address on the primary to the local address of the connection from QD
-	 * to the primary, which is the primary's ADDRESS from gp_segment_configuration,
-	 * used for interconnection.
-	 * However it's wrong on the master. Because the connection from the client to the master may
-	 * have different IP addresses as its destination, which is very likely not the master's
-	 * ADDRESS in gp_segment_configuration.
-	 */
-	if (interconnect_address)
+	snprintf(service, 32, "%d", *bindPort);
+	if (userhint == NULL)
 	{
+		memset(&default_hints, 0, sizeof(struct addrinfo));
+		default_hints.ai_family = AF_UNSPEC;	/* Allow IPv4 or IPv6 */
+		default_hints.ai_socktype = SOCK_STREAM;	/* Two-way, out of band connection */
+		default_hints.ai_flags = AI_PASSIVE;	/* For wildcard IP address */
+		default_hints.ai_protocol = 0;		/* Any protocol - TCP implied for network use due to SOCK_STREAM */
 		/*
 		 * Restrict what IP address we will listen on to just the one that was
 		 * used to create this QE session.
 		 */
-		hints.ai_flags |= AI_NUMERICHOST;
-		ereport(DEBUG1, (errmsg("binding to %s only", interconnect_address)));
-		if (gp_log_interconnect >= GPVARS_VERBOSITY_DEBUG)
-			ereport(DEBUG4, (errmsg("binding listener %s", interconnect_address)));
+		if (localaddr)
+			default_hints.ai_flags |= AI_NUMERICHOST;
+		userhint = &default_hints;
 	}
 
-	s = getaddrinfo(interconnect_address, service, &hints, &addrs);
+	s = getaddrinfo(localaddr, service, userhint, &addrs);
 	if (s != 0)
 		elog(ERROR, "getaddrinfo says %s", gai_strerror(s));
 
@@ -199,12 +197,13 @@ setupTCPListeningSocket(int backlog, int *listenerSocketFd, uint16 *listenerPort
 	 * AF_INET can only get IPv4.  Otherwise we'd need to bind two sockets,
 	 * one for each protocol.
 	 *
-	 * Why not just use AF_INET6 in the hints?  That works perfect if we know
+	 * Why not just use AF_INET6 in the userhint?  That works perfect if we know
 	 * this machine supports IPv6 and IPv6 is enabled, but we don't know that.
 	 */
 
 #ifdef HAVE_IPV6
-	if (addrs->ai_family == AF_INET && addrs->ai_next != NULL && addrs->ai_next->ai_family == AF_INET6)
+	if (userhint->ai_family == AF_UNSPEC && addrs->ai_family == AF_INET
+		&& addrs->ai_next != NULL && addrs->ai_next->ai_family == AF_INET6)
 	{
 		/*
 		 * We got both an INET and INET6 possibility, but we want to prefer
@@ -225,6 +224,8 @@ setupTCPListeningSocket(int backlog, int *listenerSocketFd, uint16 *listenerPort
 
 	for (rp = addrs; rp != NULL; rp = rp->ai_next)
 	{
+		int one = 1;
+
 		/*
 		 * getaddrinfo gives us all the parameters for the socket() call as
 		 * well as the parameters for the bind() call.
@@ -233,6 +234,13 @@ setupTCPListeningSocket(int backlog, int *listenerSocketFd, uint16 *listenerPort
 		fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 		if (fd == -1)
 			continue;
+
+		if (reuseport && setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (char *)&one, sizeof(one)) != 0)
+		{
+			close(fd);
+			fd = -1;
+			continue;
+		}
 
 		/*
 		 * we let the system pick the TCP port here so we don't have to manage
@@ -250,29 +258,23 @@ setupTCPListeningSocket(int backlog, int *listenerSocketFd, uint16 *listenerPort
 	if (fd == -1)
 		goto error;
 
-	/* Make socket non-blocking. */
-	fun = "fcntl(O_NONBLOCK)";
-	if (!pg_set_noblock(fd))
-		goto error;
+	if (*bindPort == 0)
+	{
+		/* Get the listening socket's port number. */
+		fun = "getsockname";
+		addrlen = sizeof(addr);
+		if (getsockname(fd, (struct sockaddr *) &addr, &addrlen) < 0)
+			goto error;
 
-	fun = "listen";
-	if (listen(fd, backlog) < 0)
-		goto error;
-
-	/* Get the listening socket's port number. */
-	fun = "getsockname";
-	addrlen = sizeof(addr);
-	if (getsockname(fd, (struct sockaddr *) &addr, &addrlen) < 0)
-		goto error;
+		/* display which port was chosen by the system. */
+		if (addr.ss_family == AF_INET6)
+			*bindPort = ntohs(((struct sockaddr_in6 *) &addr)->sin6_port);
+		else
+			*bindPort = ntohs(((struct sockaddr_in *) &addr)->sin_port);
+	}
 
 	/* Give results to caller. */
-	*listenerSocketFd = fd;
-
-	/* display which port was chosen by the system. */
-	if (addr.ss_family == AF_INET6)
-		*listenerPort = ntohs(((struct sockaddr_in6 *) &addr)->sin6_port);
-	else
-		*listenerPort = ntohs(((struct sockaddr_in *) &addr)->sin_port);
+	*socketFd = fd;
 
 	freeaddrinfo(addrs);
 	return;
@@ -285,8 +287,51 @@ error:
 	freeaddrinfo(addrs);
 	ereport(ERROR,
 			(errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
-			 errmsg("interconnect Error: Could not set up tcp listener socket"),
+			 errmsg("interconnect Error: Could not set up tcp socket"),
 			 errdetail("%s: %m", fun)));
+}
+
+/*
+ * setupTCPListeningSocket
+ */
+static void
+setupTCPListeningSocket(int backlog, int *listenerSocketFd, uint16 *listenerPort)
+{
+	int errnoSave;
+
+	/*
+	 * We set localaddr on the primary to the local address of the connection from QD
+	 * to the primary, which is the primary's ADDRESS from gp_segment_configuration,
+	 * used for interconnection.
+	 * However it's wrong on the master. Because the connection from the client to the master may
+	 * have different IP addresses as its destination, which is very likely not the master's
+	 * ADDRESS in gp_segment_configuration.
+	 */
+	*listenerPort = 0;
+	setupTCPSocket(false, interconnect_address, NULL /* userhint */, listenerPort, listenerSocketFd);
+	Assert(*listenerSocketFd >= 0);
+
+	if (!pg_set_noblock(*listenerSocketFd))
+	{
+		errnoSave = errno;
+		closesocket(*listenerSocketFd);
+		errno = errnoSave;
+		ereport(ERROR,
+				(errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
+				errmsg("interconnect Error: Could not set up tcp socket"),
+				errdetail("fcntl(O_NONBLOCK): %m")));
+	}
+
+	if (listen(*listenerSocketFd, backlog) < 0)
+	{
+		errnoSave = errno;
+		closesocket(*listenerSocketFd);
+		errno = errnoSave;
+		ereport(ERROR,
+				(errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
+				errmsg("interconnect Error: Could not set up tcp socket"),
+				errdetail("listen: %m")));
+	}
 }								/* setupListeningSocket */
 
 /*
@@ -300,6 +345,9 @@ InitMotionTCP(int *listenerSocketFd, uint16 *listenerPort)
 
 	setupTCPListeningSocket(listenerBacklog, listenerSocketFd, listenerPort);
 
+	ICSenderPort = 0;
+	setupTCPSocket(true /* reuseport */, NULL /* localaddr */, NULL /* userhint */,
+		&ICSenderPort, &ICSenderSocket);
 	return;
 }
 
@@ -307,7 +355,9 @@ InitMotionTCP(int *listenerSocketFd, uint16 *listenerPort)
 void
 CleanupMotionTCP(void)
 {
-	/* nothing to do. */
+	if (ICSenderSocket >= 0)
+		closesocket(ICSenderSocket);
+	ICSenderSocket = -1;
 	return;
 }
 
@@ -660,17 +710,10 @@ setupOutgoingConnection(ChunkTransportState *transportStates, ChunkTransportStat
 	 * entry
 	 */
 
-	/*
-	 * Create a socket.  getaddrinfo() returns the parameters needed by
-	 * socket()
-	 */
-	conn->sockfd = socket(addrs->ai_family, addrs->ai_socktype, addrs->ai_protocol);
-	if (conn->sockfd < 0)
-		ereport(ERROR,
-				(errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
-				 errmsg("interconnect error setting up outgoing connection"),
-				 errdetail("%s: %m", "socket")));
 
+	Insist(ICSenderPort != 0);
+	setupTCPSocket(true /* reuseport */, NULL /* localaddr */, addrs, &ICSenderPort, &conn->sockfd);
+	Assert(conn->sockfd >= 0);
 	/* make socket non-blocking BEFORE we connect. */
 	if (!pg_set_noblock(conn->sockfd))
 		ereport(ERROR,
