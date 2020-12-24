@@ -1267,7 +1267,6 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 		 * so they cannot be freed during RelationDestroyRelation(),
 		 * that is, these allocations will never be freed.
 		 */
-		Assert(CurrentMemoryContext != CacheMemoryContext);
 		GpPolicy *policy = GpPolicyFetch(targetRelId);
 		MemoryContext oldcontext = MemoryContextSwitchTo(CacheMemoryContext);
 		relation->rd_cdbpolicy = GpPolicyCopy(policy);
