@@ -1,0 +1,72 @@
+-- See https://github.com/greenplum-db/gpdb/issues/12199 for more details
+1: select gp_inject_fault_infinite('start_insertedDistributedCommitted', 'suspend', 1);
+ gp_inject_fault_infinite 
+--------------------------
+ Success:                 
+(1 row)
+1: begin;
+BEGIN
+1: create table twopcbug(i int, j int);
+CREATE
+1&: commit;  <waiting ...>
+2: select gp_inject_fault_infinite('checkpoint', 'suspend', 1);
+ gp_inject_fault_infinite 
+--------------------------
+ Success:                 
+(1 row)
+33&: checkpoint;  <waiting ...>
+2: select gp_wait_until_triggered_fault('checkpoint', 1, 1);
+ gp_wait_until_triggered_fault 
+-------------------------------
+ Success:                      
+(1 row)
+2: select gp_inject_fault_infinite('keep_log_seg', 'panic', 1);
+ gp_inject_fault_infinite 
+--------------------------
+ Success:                 
+(1 row)
+2: select gp_inject_fault_infinite('before_wait_VirtualXIDsDelayingChkpt', 'skip', 1);
+ gp_inject_fault_infinite 
+--------------------------
+ Success:                 
+(1 row)
+2: select gp_inject_fault_infinite('checkpoint', 'resume', 1);
+ gp_inject_fault_infinite 
+--------------------------
+ Success:                 
+(1 row)
+2: select gp_wait_until_triggered_fault('before_wait_VirtualXIDsDelayingChkpt', 1, 1);
+ gp_wait_until_triggered_fault 
+-------------------------------
+ Success:                      
+(1 row)
+2: select gp_inject_fault_infinite('after_xlog_xact_distributed_commit', 'infinite_loop', 1);
+ gp_inject_fault_infinite 
+--------------------------
+ Success:                 
+(1 row)
+2: select gp_inject_fault_infinite('start_insertedDistributedCommitted', 'resume', 1);
+ gp_inject_fault_infinite 
+--------------------------
+ Success:                 
+(1 row)
+1<:  <... completed>
+server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+33<:  <... completed>
+server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+-- wait until master is up for querying.
+3: select 1;
+ ?column? 
+----------
+ 1        
+(1 row)
+3: select count(1) from twopcbug;
+ count 
+-------
+ 0     
+(1 row)
+
