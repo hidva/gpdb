@@ -1,4 +1,23 @@
--- See https://github.com/greenplum-db/gpdb/issues/12199 for more details
+-- Currently `MyTmGxact->includeInCkpt = true` and `XLogInsert(RM_XACT_ID, XLOG_XACT_DISTRIBUTED_COMMIT)`
+-- is already protected by delayChkpt, so these are an atomic operation from the outside perspective.
+-- But getDtxCheckPointInfo() may see the middle state because getDtxCheckPointInfo() is called
+-- before GetVirtualXIDsDelayingChkpt(). We have fixed it and add this testcase.
+-- This testcase will fail if getDtxCheckPointInfo() is called before GetVirtualXIDsDelayingChkpt().
+
+-- We accurately control the progress of COMMIT executed in session 1 and of CHECKPOINT executed
+-- in the checkpointer process, so that events occur in the following specific order:
+--
+-- 1. session 1: COMMIT is blocked at start_insertedDistributedCommitted.
+-- 2. checkpointer: Start a new CHECKPOINT and the CHECKPOINT is blocked at `checkpoint`.
+-- 3. checkpointer: CHECKPOINT is resumed and executes to before_wait_VirtualXIDsDelayingChkpt.
+-- 4. session 1: COMMIT is resumed and executes to after_xlog_xact_distributed_commit
+-- 5. checkpointer: CHECKPOINT is resumed and executes to keep_log_seg and cause a panic.
+--
+-- if getDtxCheckPointInfo() is invoked before GetVirtualXIDsDelayingChkpt(), getDtxCheckPointInfo()
+-- will not contain the distributed transaction in session1 whose state is DTX_STATE_INSERTED_COMMITTED.
+-- Therefore, after crash recovery, the 2PC transaction that has been committed in master will be
+-- considered by the master as an orphaned prepared transaction and will be rollbacked at segments.
+-- So the SELECT executed by session3 will fail because the twopcbug table only exists on the master.
 1: select gp_inject_fault_infinite('start_insertedDistributedCommitted', 'suspend', 1);
  gp_inject_fault_infinite 
 --------------------------
